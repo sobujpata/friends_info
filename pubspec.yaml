@@ -1,0 +1,57 @@
+name: Friends_info
+description: Entry fellow Info List with auth, CRUD, favorites, and offline storage.
+publish_to: 'none'
+version: 1.0.0+2
+
+environment:
+  sdk: '>=3.7.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.6
+
+  # Database
+  sqflite: ^2.3.0
+  path: ^1.8.3
+
+  # File system / images
+  path_provider: ^2.1.1
+  image_picker: ^1.0.4
+  file_picker: ^12.3.0
+
+  # Utilities
+  url_launcher: ^6.2.2
+  share_plus: ^13.3.0
+  shared_preferences: ^2.2.2
+  intl: ^0.19.0
+  sqflite_common_ffi: ^2.4.3
+  sqlite3_flutter_libs: ^0.5.32 # Keep to 0.5.x for pocketsync_flutter compatibility
+  device_info_plus: ^13.2.0
+  pocketsync_flutter: ^0.5.1
+  flutter_staggered_grid_view: ^0.7.0
+
+# Keep the Windows FFI stack compatible with the current file_picker and device_info_plus versions.
+dependency_overrides:
+  device_info_plus: 13.2.0
+  win32: ^6.4.0
+  win32_registry: ^3.0.3
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+  flutter_launcher_icons: ^0.14.3
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/app_icon.png
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  remove_alpha_ios: true
+  image_path: "assets/app_icon.png"
+  adaptive_icon_background: "#0E172A"
+  adaptive_icon_foreground: "assets/app_icon.png"
