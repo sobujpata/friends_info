@@ -4,12 +4,13 @@ import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
 import '../models/friend.dart';
+import '../models/money_transaction.dart';
 import '../models/note.dart';
 
 class DBService {
   static Database? _db;
 
-  static const int _schemaVersion = 3;
+  static const int _schemaVersion = 4;
 
   static const String _createNotesTable = '''
     CREATE TABLE notes(
@@ -41,6 +42,19 @@ class DBService {
     )
   ''';
 
+  static const String _createTransactionsTable = '''
+    CREATE TABLE transactions(
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      owner_personnel_no TEXT NOT NULL,
+      title TEXT NOT NULL,
+      amount REAL NOT NULL,
+      type TEXT NOT NULL,
+      category TEXT NOT NULL,
+      transaction_date TEXT NOT NULL,
+      tags TEXT
+    )
+  ''';
+
   static Future<Database> get database async {
     if (_db != null) return _db!;
     _db = await _open();
@@ -61,13 +75,20 @@ class DBService {
       version: _schemaVersion,
       onCreate: (db, v) async {
         await db.execute(_createTableV2);
-        await db
-            .execute('CREATE INDEX idx_owner ON friends(owner_personnel_no)');
+        await db.execute(
+          'CREATE INDEX idx_owner ON friends(owner_personnel_no)',
+        );
         await db.execute(_createNotesTable);
         await db.execute(
-            'CREATE INDEX idx_notes_owner ON notes(owner_personnel_no)');
+          'CREATE INDEX idx_notes_owner ON notes(owner_personnel_no)',
+        );
         await db.execute(
-            'CREATE INDEX idx_notes_updated ON notes(owner_personnel_no, updated_at DESC)');
+          'CREATE INDEX idx_notes_updated ON notes(owner_personnel_no, updated_at DESC)',
+        );
+        await db.execute(_createTransactionsTable);
+        await db.execute(
+          'CREATE INDEX idx_transactions_owner_date ON transactions(owner_personnel_no, transaction_date DESC)',
+        );
       },
       onUpgrade: (db, oldVersion, newVersion) async {
         // v1 -> v2: drop whatsapp/email, fold old `address` into
@@ -99,29 +120,47 @@ class DBService {
           ''');
           await db.execute('DROP TABLE friends');
           await db.execute('ALTER TABLE friends_new RENAME TO friends');
-          await db
-              .execute('CREATE INDEX idx_owner ON friends(owner_personnel_no)');
+          await db.execute(
+            'CREATE INDEX idx_owner ON friends(owner_personnel_no)',
+          );
         }
         if (oldVersion < 3) {
           await db.execute(_createNotesTable);
           await db.execute(
-              'CREATE INDEX idx_notes_owner ON notes(owner_personnel_no)');
+            'CREATE INDEX idx_notes_owner ON notes(owner_personnel_no)',
+          );
           await db.execute(
-              'CREATE INDEX idx_notes_updated ON notes(owner_personnel_no, updated_at DESC)');
+            'CREATE INDEX idx_notes_updated ON notes(owner_personnel_no, updated_at DESC)',
+          );
+        }
+        if (oldVersion < 4) {
+          await db.execute(_createTransactionsTable);
+          await db.execute(
+            'CREATE INDEX idx_transactions_owner_date ON transactions(owner_personnel_no, transaction_date DESC)',
+          );
         }
       },
     );
   }
 
-  static Future<List<Friend>> list(String owner,
-      {String query = '', bool onlyFav = false}) async {
+  static Future<List<Friend>> list(
+    String owner, {
+    String query = '',
+    String? bloodGroup,
+    bool onlyFav = false,
+  }) async {
     final db = await database;
     final where = StringBuffer('owner_personnel_no = ?');
     final args = <Object>[owner];
     if (onlyFav) where.write(' AND is_favorite = 1');
+    if (bloodGroup != null && bloodGroup.isNotEmpty) {
+      where.write(' AND blood_gp = ?');
+      args.add(bloodGroup);
+    }
     if (query.trim().isNotEmpty) {
       where.write(
-          ' AND (personnel_no LIKE ? OR name LIKE ? OR phone LIKE ? OR trade LIKE ?)');
+        ' AND (personnel_no LIKE ? OR name LIKE ? OR phone LIKE ? OR trade LIKE ?)',
+      );
       final q = '%${query.trim()}%';
       args
         ..add(q)
@@ -129,19 +168,45 @@ class DBService {
         ..add(q)
         ..add(q);
     }
-    final rows = await db.query('friends',
-        where: where.toString(),
-        whereArgs: args,
-        orderBy: 'is_favorite DESC, name ASC');
+    final rows = await db.query(
+      'friends',
+      where: where.toString(),
+      whereArgs: args,
+      orderBy: 'is_favorite DESC, name ASC',
+    );
     return rows.map((r) => Friend.fromMap(r)).toList();
+  }
+
+  static Future<List<MoneyTransaction>> listMoneyTransactions(
+    String owner,
+  ) async {
+    final db = await database;
+    final rows = await db.query(
+      'transactions',
+      where: 'owner_personnel_no = ?',
+      whereArgs: [owner],
+      orderBy: 'transaction_date DESC, id DESC',
+    );
+    return rows.map(MoneyTransaction.fromMap).toList();
+  }
+
+  static Future<int> insertMoneyTransaction(
+    MoneyTransaction transaction,
+  ) async {
+    final db = await database;
+    final map = Map<String, dynamic>.from(transaction.toMap())..remove('id');
+    return db.insert('transactions', map);
   }
 
   // ✅ FIXED: strip 'id' key entirely so AUTOINCREMENT assigns it
   static Future<int> insert(Friend f) async {
     final db = await database;
     final map = Map<String, dynamic>.from(f.toMap())..remove('id');
-    return db.insert('friends', map,
-        conflictAlgorithm: ConflictAlgorithm.replace);
+    return db.insert(
+      'friends',
+      map,
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
   }
 
   // ✅ FIXED: same treatment, but keep id for the WHERE clause
@@ -162,15 +227,22 @@ class DBService {
   static Future<void> toggleFavorite(Friend f) async {
     if (f.id == null) return;
     final db = await database;
-    await db.update('friends', {'is_favorite': f.isFavorite ? 0 : 1},
-        where: 'id = ?', whereArgs: [f.id]);
+    await db.update(
+      'friends',
+      {'is_favorite': f.isFavorite ? 0 : 1},
+      where: 'id = ?',
+      whereArgs: [f.id],
+    );
   }
 
   static Future<void> replaceAll(String owner, List<Friend> friends) async {
     final db = await database;
     await db.transaction((txn) async {
-      await txn.delete('friends',
-          where: 'owner_personnel_no = ?', whereArgs: [owner]);
+      await txn.delete(
+        'friends',
+        where: 'owner_personnel_no = ?',
+        whereArgs: [owner],
+      );
       for (final f in friends) {
         final map = Map<String, dynamic>.from(f.toMap())..remove('id');
         map['owner_personnel_no'] = owner;
@@ -179,8 +251,7 @@ class DBService {
     });
   }
 
-  static Future<List<Note>> listNotes(String owner,
-      {String query = ''}) async {
+  static Future<List<Note>> listNotes(String owner, {String query = ''}) async {
     final db = await database;
     final trimmed = query.trim();
     final where = StringBuffer('owner_personnel_no = ?');
@@ -237,15 +308,21 @@ class DBService {
 
   static Future<void> deleteAllNotesFor(String owner) async {
     final db = await database;
-    await db.delete('notes',
-        where: 'owner_personnel_no = ?', whereArgs: [owner]);
+    await db.delete(
+      'notes',
+      where: 'owner_personnel_no = ?',
+      whereArgs: [owner],
+    );
   }
 
   static Future<void> replaceAllNotes(String owner, List<Note> notes) async {
     final db = await database;
     await db.transaction((txn) async {
-      await txn.delete('notes',
-          where: 'owner_personnel_no = ?', whereArgs: [owner]);
+      await txn.delete(
+        'notes',
+        where: 'owner_personnel_no = ?',
+        whereArgs: [owner],
+      );
       for (final note in notes) {
         final map = Map<String, dynamic>.from(note.toMap())..remove('id');
         map['owner_personnel_no'] = owner;

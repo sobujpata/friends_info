@@ -4,11 +4,11 @@ import '../services/backup_service.dart';
 import '../services/db_service.dart';
 import '../widgets/friend_tile.dart';
 import 'about_screen.dart';
+import 'balance_screen.dart';
 import 'friend_detail_screen.dart';
 import 'friend_form_screen.dart';
-import 'instruction_screen.dart';
-import 'chat_screen.dart';
 import 'notes_tab.dart';
+import 'chart_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   final String personnelNo;
@@ -33,7 +33,8 @@ class _HomeScreenState extends State<HomeScreen> {
   List<Friend> _friends = [];
   bool _loading = true;
   bool _onlyFav = false;
-  int _tab = 0; // Home, Messages, Notes, Instruction, About Owner
+  String? _selectedBloodGroup;
+  int _tab = 0; // Home, Balance, Charts, Notes, About Owner
 
   @override
   void initState() {
@@ -46,6 +47,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final list = await DBService.list(
       widget.personnelNo,
       query: _searchCtrl.text,
+      bloodGroup: _selectedBloodGroup,
       onlyFav: _onlyFav,
     );
     if (!mounted) return;
@@ -59,10 +61,11 @@ class _HomeScreenState extends State<HomeScreen> {
     final saved = await Navigator.push<bool>(
       context,
       MaterialPageRoute(
-        builder: (_) => FriendFormScreen(
-          ownerPersonnelNo: widget.personnelNo,
-          friend: friend,
-        ),
+        builder:
+            (_) => FriendFormScreen(
+              ownerPersonnelNo: widget.personnelNo,
+              friend: friend,
+            ),
       ),
     );
     if (saved == true) {
@@ -76,10 +79,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final changed = await Navigator.push<bool>(
       context,
       MaterialPageRoute(
-        builder: (_) => FriendDetailScreen(
-          friend: f,
-          onChanged: _load,
-        ),
+        builder: (_) => FriendDetailScreen(friend: f, onChanged: _load),
       ),
     );
     if (changed == true) _load();
@@ -93,18 +93,21 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _confirmDelete(Friend f) async {
     final ok = await showDialog<bool>(
       context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Delete friend?'),
-        content: Text('Remove ${f.name} permanently?'),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('Cancel')),
-          FilledButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text('Delete')),
-        ],
-      ),
+      builder:
+          (_) => AlertDialog(
+            title: const Text('Delete friend?'),
+            content: Text('Remove ${f.name} permanently?'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Delete'),
+              ),
+            ],
+          ),
     );
     if (ok == true) {
       await DBService.delete(f.id!);
@@ -120,32 +123,21 @@ class _HomeScreenState extends State<HomeScreen> {
     } else if (value == 'import') {
       final n = await BackupService.import(widget.personnelNo);
       if (n != null && mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Imported $n records')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Imported $n records')));
         _load();
       }
     }
   }
 
-  static const _tabTitles = [
-    'Friends Info',
-    'Messages',
-    'Notes',
-    'Instruction',
-    'About Owner',
-  ];
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(_tabTitles[_tab]),
-            Text('Signed in as ${widget.personnelNo}',
-                style: const TextStyle(fontSize: 12)),
-          ],
+        title: Text(
+          'Signed in as ${widget.personnelNo}',
+          style: const TextStyle(fontSize: 14),
         ),
         actions: [
           if (_tab == 0)
@@ -160,17 +152,25 @@ class _HomeScreenState extends State<HomeScreen> {
           IconButton(
             tooltip: 'Dark mode',
             icon: Icon(
-                widget.darkMode ? Icons.dark_mode : Icons.dark_mode_outlined),
+              widget.darkMode ? Icons.dark_mode : Icons.dark_mode_outlined,
+            ),
             onPressed: () => widget.onToggleDark(!widget.darkMode),
           ),
           PopupMenuButton<String>(
             onSelected: _showMenu,
-            itemBuilder: (_) => const [
-              PopupMenuItem(value: 'export', child: Text('Backup (export)')),
-              PopupMenuItem(value: 'import', child: Text('Restore (import)')),
-              PopupMenuDivider(),
-              PopupMenuItem(value: 'logout', child: Text('Logout')),
-            ],
+            itemBuilder:
+                (_) => const [
+                  PopupMenuItem(
+                    value: 'export',
+                    child: Text('Backup (export)'),
+                  ),
+                  PopupMenuItem(
+                    value: 'import',
+                    child: Text('Restore (import)'),
+                  ),
+                  PopupMenuDivider(),
+                  PopupMenuItem(value: 'logout', child: Text('Logout')),
+                ],
           ),
         ],
       ),
@@ -178,19 +178,20 @@ class _HomeScreenState extends State<HomeScreen> {
         index: _tab,
         children: [
           _buildHomeTab(),
-          ChatScreen(personnelNo: widget.personnelNo),
+          BalanceScreen(ownerPersonnelNo: widget.personnelNo),
+          ChartScreen(ownerPersonnelNo: widget.personnelNo),
           NotesTab(ownerPersonnelNo: widget.personnelNo),
-          const InstructionScreen(),
           const AboutScreen(),
         ],
       ),
-      floatingActionButton: _tab == 0
-          ? FloatingActionButton.extended(
-              onPressed: () => _openForm(),
-              icon: const Icon(Icons.person_add_alt),
-              label: const Text('Add friend'),
-            )
-          : null,
+      floatingActionButton:
+          _tab == 0
+              ? FloatingActionButton.extended(
+                onPressed: () => _openForm(),
+                icon: const Icon(Icons.person_add_alt),
+                label: const Text('Add friend'),
+              )
+              : null,
       bottomNavigationBar: NavigationBar(
         selectedIndex: _tab,
         onDestinationSelected: (i) => setState(() => _tab = i),
@@ -201,9 +202,14 @@ class _HomeScreenState extends State<HomeScreen> {
             label: 'Home',
           ),
           NavigationDestination(
-            icon: Icon(Icons.chat_bubble_outline),
-            selectedIcon: Icon(Icons.chat_bubble),
-            label: 'Messages',
+            icon: Icon(Icons.account_balance_wallet_outlined),
+            selectedIcon: Icon(Icons.account_balance_wallet),
+            label: 'Balance',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.pie_chart_outline),
+            selectedIcon: Icon(Icons.pie_chart),
+            label: 'Charts',
           ),
           NavigationDestination(
             icon: Icon(Icons.sticky_note_2_outlined),
@@ -211,14 +217,9 @@ class _HomeScreenState extends State<HomeScreen> {
             label: 'Notes',
           ),
           NavigationDestination(
-            icon: Icon(Icons.menu_book_outlined),
-            selectedIcon: Icon(Icons.menu_book),
-            label: 'Instruction',
-          ),
-          NavigationDestination(
             icon: Icon(Icons.person_outline),
             selectedIcon: Icon(Icons.person),
-            label: 'About Owner',
+            label: 'About',
           ),
         ],
       ),
@@ -230,63 +231,103 @@ class _HomeScreenState extends State<HomeScreen> {
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-          child: TextField(
-            controller: _searchCtrl,
-            onChanged: (_) => _load(),
-            decoration: InputDecoration(
-              hintText: 'Search by personnel no, name, phone…',
-              prefixIcon: const Icon(Icons.search),
-              suffixIcon: _searchCtrl.text.isEmpty
-                  ? null
-                  : IconButton(
-                      icon: const Icon(Icons.clear),
-                      onPressed: () {
-                        _searchCtrl.clear();
-                        _load();
-                      },
+          child: Column(
+            children: [
+              TextField(
+                controller: _searchCtrl,
+                onChanged: (_) => _load(),
+                decoration: InputDecoration(
+                  hintText: 'Search by personnel no, name, phone…',
+                  prefixIcon: const Icon(Icons.search),
+                  suffixIcon:
+                      _searchCtrl.text.isEmpty
+                          ? null
+                          : IconButton(
+                            icon: const Icon(Icons.clear),
+                            onPressed: () {
+                              _searchCtrl.clear();
+                              _load();
+                            },
+                          ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              DropdownButtonFormField<String?>(
+                initialValue: _selectedBloodGroup,
+                decoration: InputDecoration(
+                  labelText: 'Blood Group',
+                  hintText: 'All blood groups',
+                  isDense: true,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 12,
+                  ),
+                ),
+                items: [
+                  const DropdownMenuItem<String?>(
+                    value: null,
+                    child: Text('All blood groups'),
+                  ),
+                  ...kBloodGroups.map(
+                    (group) => DropdownMenuItem<String?>(
+                      value: group,
+                      child: Text(group),
                     ),
-            ),
+                  ),
+                ],
+                onChanged: (group) {
+                  setState(() => _selectedBloodGroup = group);
+                  _load();
+                },
+              ),
+            ],
           ),
         ),
         Expanded(
-          child: _loading
-              ? const Center(child: CircularProgressIndicator())
-              : _friends.isEmpty
+          child:
+              _loading
+                  ? const Center(child: CircularProgressIndicator())
+                  : _friends.isEmpty
                   ? _EmptyState(hasQuery: _searchCtrl.text.isNotEmpty)
                   : RefreshIndicator(
-                      onRefresh: _load,
-                      child: ListView.separated(
-                        padding: const EdgeInsets.fromLTRB(16, 4, 16, 90),
-                        itemCount: _friends.length,
-                        separatorBuilder: (_, __) => const SizedBox(height: 8),
-                        itemBuilder: (_, i) {
-                          final f = _friends[i];
-                          return Dismissible(
-                            key: ValueKey(f.id),
-                            direction: DismissDirection.endToStart,
-                            background: Container(
-                              alignment: Alignment.centerRight,
-                              padding: const EdgeInsets.only(right: 24),
-                              decoration: BoxDecoration(
-                                color: Colors.red.shade400,
-                                borderRadius: BorderRadius.circular(20),
-                              ),
-                              child:
-                                  const Icon(Icons.delete, color: Colors.white),
+                    onRefresh: _load,
+                    child: ListView.separated(
+                      padding: const EdgeInsets.fromLTRB(16, 4, 16, 90),
+                      itemCount: _friends.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: 8),
+                      itemBuilder: (_, i) {
+                        final f = _friends[i];
+                        return Dismissible(
+                          key: ValueKey(f.id),
+                          direction: DismissDirection.endToStart,
+                          background: Container(
+                            alignment: Alignment.centerRight,
+                            padding: const EdgeInsets.only(right: 24),
+                            decoration: BoxDecoration(
+                              color: Colors.red.shade400,
+                              borderRadius: BorderRadius.circular(20),
                             ),
-                            confirmDismiss: (_) async {
-                              await _confirmDelete(f);
-                              return false;
-                            },
-                            child: FriendTile(
-                              friend: f,
-                              onTap: () => _openDetail(f),
-                              onFavorite: () => _toggleFav(f),
+                            child: const Icon(
+                              Icons.delete,
+                              color: Colors.white,
                             ),
-                          );
-                        },
-                      ),
+                          ),
+                          confirmDismiss: (_) async {
+                            await _confirmDelete(f);
+                            return false;
+                          },
+                          child: FriendTile(
+                            friend: f,
+                            onTap: () => _openDetail(f),
+                            onFavorite: () => _toggleFav(f),
+                          ),
+                        );
+                      },
                     ),
+                  ),
         ),
       ],
     );
@@ -303,12 +344,17 @@ class _EmptyState extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(hasQuery ? Icons.search_off : Icons.people_outline,
-              size: 64, color: Theme.of(context).colorScheme.outline),
+          Icon(
+            hasQuery ? Icons.search_off : Icons.people_outline,
+            size: 64,
+            color: Theme.of(context).colorScheme.outline,
+          ),
           const SizedBox(height: 12),
-          Text(hasQuery
-              ? 'No friends match your search.'
-              : 'No friends yet. Tap "Add friend" to start.'),
+          Text(
+            hasQuery
+                ? 'No friends match your search.'
+                : 'No friends yet. Tap "Add friend" to start.',
+          ),
         ],
       ),
     );
